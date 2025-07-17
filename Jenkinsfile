@@ -5,11 +5,10 @@ pipeline {
         IMAGE_NAME = 'netflix-clone'
         DOCKER_HUB_REPO = 'mohdibrahimk/netflix-clone'
     }
-
-    stages {
+  stages {
         stage('Clone Repo') {
             steps {
-                git 'https://github.com/mohdkhal/netflix-clone-devsecops.git'
+                git credentialsId: 'git-creds', url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
             }
         }
 
