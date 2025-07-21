@@ -2,31 +2,29 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'netflix-clone-devsecops'
-        DOCKERHUB_CREDENTIALS = credentials('docker-creds')
-        GIT_CREDENTIALS = credentials('git-creds')
-        SLACK_WEBHOOK = credentials('slack_webhook_url')
+        IMAGE_NAME = 'netflix-clone'
+        DOCKER_HUB_REPO = 'mohdibrahimk/netflix-clone'
+        SLACK_WEBHOOK_URL = credentials('slack_webhook_url')
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Clone GitHub Repo') {
             steps {
-                git credentialsId: "${GIT_CREDENTIALS}", url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
+                echo "📥 Cloning repository..."
+                git credentialsId: 'git-creds', url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
             }
         }
 
-        stage('Trivy Scan') {
+        stage('Build Docker Image') {
             steps {
-                sh '''
-                    echo "🔍 Running Trivy vulnerability scan..."
-                    trivy image --exit-code 0 --severity MEDIUM,HIGH,CRITICAL ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME} || true
-                '''
+                echo "🐳 Building Docker image..."
+                sh 'docker build -t $DOCKER_HUB_REPO:latest .'
             }
         }
 
         stage('Push to DockerHub') {
             steps {
-                echo "��� Pushing image to DockerHub..."
+                echo "📦 Pushing image to DockerHub..."
                 withCredentials([usernamePassword(
                     credentialsId: 'docker-creds',
                     usernameVariable: 'DOCKER_USER',
@@ -43,14 +41,32 @@ pipeline {
 
     post {
         always {
-            echo "��� Cleaning up unused Docker images..."
+            echo "🧹 Cleaning up unused Docker images..."
             sh 'docker system prune -af || true'
         }
+
         success {
             echo "✅ Jenkins pipeline completed successfully!"
+
+            script {
+                def slackMessage = "*✅ Build Successful*\nJob: ${env.JOB_NAME}\nBuild #: ${env.BUILD_NUMBER}\nStatus: SUCCESS"
+                sh """
+                    curl -X POST -H 'Content-type: application/json' \
+                    --data '{"text": "${slackMessage}"}' ${SLACK_WEBHOOK_URL}
+                """
+            }
         }
+
         failure {
-            echo "❌ Pipeline failed. Check console output for details."
+            echo "❌ Pipeline failed."
+
+            script {
+                def slackMessage = "*❌ Build Failed*\nJob: ${env.JOB_NAME}\nBuild #: ${env.BUILD_NUMBER}\nStatus: FAILURE"
+                sh """
+                    curl -X POST -H 'Content-type: application/json' \
+                    --data '{"text": "${slackMessage}"}' ${SLACK_WEBHOOK_URL}
+                """
+            }
         }
     }
 }
