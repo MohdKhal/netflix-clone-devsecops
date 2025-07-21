@@ -24,21 +24,17 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Push to DockerHub') {
             steps {
-                sh '''
-                    echo "🐳 Building Docker image..."
-                    docker build -t ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest .
-                '''
-            }
-        }
-
-        stage('Push to Docker Hub') {
-            steps {
-                withDockerRegistry([credentialsId: 'docker-creds', url: '']) {
+                echo "��� Pushing image to DockerHub..."
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
                     sh '''
-                        echo "🚀 Pushing Docker image to Docker Hub..."
-                        docker push ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest
+                      echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                      docker push $DOCKER_HUB_REPO:latest
                     '''
                 }
             }
@@ -46,30 +42,15 @@ pipeline {
     }
 
     post {
-        success {
-            echo '✅ Build completed successfully!'
-            script {
-                def payload = """{
-                    "text": "✅ *Jenkins Pipeline Success* - ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Build>)"
-                }"""
-                httpRequest httpMode: 'POST',
-                    contentType: 'APPLICATION_JSON',
-                    requestBody: payload,
-                    url: "${SLACK_WEBHOOK}"
-            }
+        always {
+            echo "��� Cleaning up unused Docker images..."
+            sh 'docker system prune -af || true'
         }
-
+        success {
+            echo "✅ Jenkins pipeline completed successfully!"
+        }
         failure {
-            echo '❌ Build failed!'
-            script {
-                def payload = """{
-                    "text": "❌ *Jenkins Pipeline Failed* - ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Build>)"
-                }"""
-                httpRequest httpMode: 'POST',
-                    contentType: 'APPLICATION_JSON',
-                    requestBody: payload,
-                    url: "${SLACK_WEBHOOK}"
-            }
+            echo "❌ Pipeline failed. Check console output for details."
         }
     }
 }
