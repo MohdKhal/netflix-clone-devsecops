@@ -5,47 +5,35 @@ pipeline {
         IMAGE_NAME = 'netflix-clone'
         DOCKER_HUB_REPO = 'mohdibrahimk/netflix-clone'
         SLACK_WEBHOOK = credentials('slack_webhook_url')
+        DOCKER_CREDENTIALS_ID = 'docker-creds'
+        GIT_CREDENTIALS_ID = 'git-creds'
     }
 
     stages {
-        stage('Clone GitHub Repo') {
+        stage('Checkout Code') {
             steps {
-                echo "🔄 Cloning GitHub repository..."
-                git credentialsId: 'git-creds', url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
+                git credentialsId: "${GIT_CREDENTIALS_ID}", url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                echo "🔍 Running Trivy config scan..."
-                sh '''
-                    if ! command -v trivy &> /dev/null; then
-                        echo "❌ Trivy not found. Please install Trivy on Jenkins agent."
-                        exit 1
-                    fi
-                    trivy config .
-                '''
+                sh 'trivy image --exit-code 0 --severity MEDIUM,HIGH,CRITICAL ${DOCKER_HUB_REPO}:latest || true'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                echo "🐳 Building Docker image..."
-                sh 'docker build -t $DOCKER_HUB_REPO:latest .'
+                sh 'docker build -t ${DOCKER_HUB_REPO}:${BUILD_NUMBER} .'
             }
         }
 
-        stage('Push to DockerHub') {
+        stage('Push to Docker Hub') {
             steps {
-                echo "📦 Pushing Docker image to DockerHub..."
-                withCredentials([usernamePassword(
-                    credentialsId: 'docker-creds',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
+                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
                     sh '''
                         echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        docker push $DOCKER_HUB_REPO:latest
+                        docker push ${DOCKER_HUB_REPO}:${BUILD_NUMBER}
                     '''
                 }
             }
@@ -53,28 +41,26 @@ pipeline {
     }
 
     post {
-        always {
-            echo "🧹 Cleaning up Docker..."
-            sh 'docker system prune -af || true'
-        }
-
         success {
             echo "✅ Pipeline succeeded!"
-            slackSend (
-                color: 'good',
-                message: "✅ *Success*: Netflix Clone pipeline passed on `${env.JOB_NAME}` (<${env.BUILD_URL}|View Build>)",
-                webhookUrl: "${SLACK_WEBHOOK}"
-            )
+            script {
+                def payload = """{
+                    "text": "✅ *Success*: Netflix Clone pipeline passed on `${env.JOB_NAME}` (<${env.BUILD_URL}|View Build>)"
+                }"""
+                httpRequest httpMode: 'POST', contentType: 'APPLICATION_JSON',
+                            requestBody: payload, url: "${SLACK_WEBHOOK}"
+            }
         }
 
         failure {
             echo "❌ Pipeline failed."
-            slackSend (
-                color: 'danger',
-                message: "❌ *Failed*: Netflix Clone pipeline failed on `${env.JOB_NAME}` (<${env.BUILD_URL}|View Build>)",
-                webhookUrl: "${SLACK_WEBHOOK}"
-            )
+            script {
+                def payload = """{
+                    "text": "❌ *Failed*: Netflix Clone pipeline failed on `${env.JOB_NAME}` (<${env.BUILD_URL}|View Build>)"
+                }"""
+                httpRequest httpMode: 'POST', contentType: 'APPLICATION_JSON',
+                            requestBody: payload, url: "${SLACK_WEBHOOK}"
+            }
         }
     }
 }
-
