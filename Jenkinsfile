@@ -3,28 +3,53 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'netflix-clone'
-        DOCKER_HUB_REPO = 'mohdibrahimk/netflix-clone' // Replace if needed
+        DOCKER_HUB_REPO = 'mohdibrahimk/netflix-clone'
+        SLACK_WEBHOOK_URL = credentials('slack_webhook_url')
     }
 
     stages {
         stage('Clone GitHub Repo') {
             steps {
-                echo "Ì≥• Cloning repository..."
+                echo "üì• Cloning repository..."
                 git credentialsId: 'git-creds', url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
             }
         }
 
+        stage('Trivy Scan') {
+            steps {
+                echo "üîç Running Trivy vulnerability scan..."
+                sh '''
+                  if ! command -v trivy &> /dev/null; then
+                      echo "Installing Trivy..."
+                      sudo apt-get update -y && sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+                      wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                      echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+                      sudo apt-get update -y && sudo apt-get install trivy -y
+                  fi
+
+                  echo "Running Trivy on Dockerfile..."
+                  trivy config .
+                '''
+            }
+        }
 
         stage('Build Docker Image') {
             steps {
-                echo "Ì∞≥ Building Docker image..."
+                echo "üê≥ Building Docker image..."
                 sh 'docker build -t $DOCKER_HUB_REPO:latest .'
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                echo "üîé Scanning Docker image with Trivy..."
+                sh 'trivy image --severity HIGH,CRITICAL $DOCKER_HUB_REPO:latest || true'
             }
         }
 
         stage('Push to DockerHub') {
             steps {
-                echo "Ì∫Ä Pushing image to DockerHub..."
+                echo "üì¶ Pushing image to DockerHub..."
                 withCredentials([usernamePassword(
                     credentialsId: 'docker-creds',
                     usernameVariable: 'DOCKER_USER',
@@ -41,15 +66,30 @@ pipeline {
 
     post {
         always {
-            echo "Ì∑π Cleaning up unused Docker images..."
+            echo "üßπ Cleaning up unused Docker images..."
             sh 'docker system prune -af || true'
         }
+
         success {
-            echo "‚úÖ Jenkins pipeline completed successfully!"
+            echo "‚úÖ Pipeline completed successfully!"
+            script {
+                def msg = "*‚úÖ Jenkins Build Successful*\nJob: ${env.JOB_NAME}\nBuild #: ${env.BUILD_NUMBER}"
+                sh """
+                    curl -X POST -H 'Content-type: application/json' \
+                    --data '{"text": "${msg}"}' ${SLACK_WEBHOOK_URL}
+                """
+            }
         }
+
         failure {
-            echo "‚ùå Pipeline failed. Check console output for details."
+            echo "‚ùå Pipeline failed!"
+            script {
+                def msg = "*‚ùå Jenkins Build Failed*\nJob: ${env.JOB_NAME}\nBuild #: ${env.BUILD_NUMBER}"
+                sh """
+                    curl -X POST -H 'Content-type: application/json' \
+                    --data '{"text": "${msg}"}' ${SLACK_WEBHOOK_URL}
+                """
+            }
         }
     }
 }
-
