@@ -2,38 +2,43 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = 'netflix-clone'
-        DOCKER_HUB_REPO = 'mohdibrahimk/netflix-clone'
+        IMAGE_NAME = 'netflix-clone-devsecops'
+        DOCKERHUB_CREDENTIALS = credentials('docker-creds')
+        GIT_CREDENTIALS = credentials('git-creds')
         SLACK_WEBHOOK = credentials('slack_webhook_url')
-        DOCKER_CREDENTIALS_ID = 'docker-creds'
-        GIT_CREDENTIALS_ID = 'git-creds'
     }
 
     stages {
         stage('Checkout Code') {
             steps {
-                git credentialsId: "${GIT_CREDENTIALS_ID}", url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
+                git credentialsId: "${GIT_CREDENTIALS}", url: 'https://github.com/MohdKhal/netflix-clone-devsecops.git', branch: 'main'
             }
         }
 
         stage('Trivy Scan') {
             steps {
-                sh 'trivy image --exit-code 0 --severity MEDIUM,HIGH,CRITICAL ${DOCKER_HUB_REPO}:latest || true'
+                sh '''
+                    echo "🔍 Running Trivy vulnerability scan..."
+                    trivy image --exit-code 0 --severity MEDIUM,HIGH,CRITICAL ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME} || true
+                '''
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t ${DOCKER_HUB_REPO}:${BUILD_NUMBER} .'
+                sh '''
+                    echo "🐳 Building Docker image..."
+                    docker build -t ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest .
+                '''
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS_ID}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+                withDockerRegistry([credentialsId: 'docker-creds', url: '']) {
                     sh '''
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-                        docker push ${DOCKER_HUB_REPO}:${BUILD_NUMBER}
+                        echo "🚀 Pushing Docker image to Docker Hub..."
+                        docker push ${DOCKERHUB_CREDENTIALS_USR}/${IMAGE_NAME}:latest
                     '''
                 }
             }
@@ -42,24 +47,28 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline succeeded!"
+            echo '✅ Build completed successfully!'
             script {
                 def payload = """{
-                    "text": "✅ *Success*: Netflix Clone pipeline passed on `${env.JOB_NAME}` (<${env.BUILD_URL}|View Build>)"
+                    "text": "✅ *Jenkins Pipeline Success* - ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Build>)"
                 }"""
-                httpRequest httpMode: 'POST', contentType: 'APPLICATION_JSON',
-                            requestBody: payload, url: "${SLACK_WEBHOOK}"
+                httpRequest httpMode: 'POST',
+                    contentType: 'APPLICATION_JSON',
+                    requestBody: payload,
+                    url: "${SLACK_WEBHOOK}"
             }
         }
 
         failure {
-            echo "❌ Pipeline failed."
+            echo '❌ Build failed!'
             script {
                 def payload = """{
-                    "text": "❌ *Failed*: Netflix Clone pipeline failed on `${env.JOB_NAME}` (<${env.BUILD_URL}|View Build>)"
+                    "text": "❌ *Jenkins Pipeline Failed* - ${env.JOB_NAME} #${env.BUILD_NUMBER} (<${env.BUILD_URL}|View Build>)"
                 }"""
-                httpRequest httpMode: 'POST', contentType: 'APPLICATION_JSON',
-                            requestBody: payload, url: "${SLACK_WEBHOOK}"
+                httpRequest httpMode: 'POST',
+                    contentType: 'APPLICATION_JSON',
+                    requestBody: payload,
+                    url: "${SLACK_WEBHOOK}"
             }
         }
     }
