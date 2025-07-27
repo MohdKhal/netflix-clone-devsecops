@@ -39,8 +39,9 @@ jobs:
       - name: SonarQube Scan
         uses: sonarsource/sonarqube-scan-action@master
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: sqa_27175b5ee8cb12d3cbc5a277cb5156fddaebd7e4
+          SONAR_HOST_URL: http://20.169.234.158:9000/
+
 
       # Optional: Fail the build if Sonar Quality Gate fails
       # - name: Check SonarQube Quality Gate
