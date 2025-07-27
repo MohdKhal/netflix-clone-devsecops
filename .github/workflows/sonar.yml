@@ -1,4 +1,4 @@
-name: SonarQube + Trivy Scan
+name: SonarQube + Trivy CI
 
 on:
   push:
@@ -6,44 +6,46 @@ on:
       - main
 
 jobs:
-  security-and-code-scan:
-    name: Run SonarQube & Trivy Scans
+  scan:
+    name: Trivy + SonarQube Scan
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-        with:
-          fetch-depth: 0  # Needed for accurate SonarQube analysis
+      - name: Checkout source code
+        uses: actions/checkout@v3
 
-      - name: Set up JDK 17 (required for SonarQube)
-        uses: actions/setup-java@v3
+      - name: Set up Python (if using Python project)
+        uses: actions/setup-python@v4
         with:
-          java-version: '17'
-          distribution: 'temurin'
+          python-version: '3.x'
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget -y
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.51.1_Linux-64bit.deb
+          sudo dpkg -i trivy_0.51.1_Linux-64bit.deb
+
+      - name: Run Trivy vulnerability scan
+        run: |
+          trivy fs . > trivy-report.txt || true
+          cat trivy-report.txt
+
+      - name: Upload Trivy Report as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: trivy-report.txt
 
       - name: Run SonarQube Scan
         uses: sonarsource/sonarqube-scan-action@master
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_HOST_URL: http://20.169.234.158:9000
 
-      # Optional: Fail if quality gate fails
-      # - name: Check SonarQube Quality Gate
+      # Optional: Fail job if Sonar Quality Gate fails
+      # - name: Check Quality Gate
       #   uses: sonarsource/sonarqube-quality-gate-action@master
       #   timeout-minutes: 5
       #   env:
       #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-      - name: Install Trivy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
-      - name: Run Trivy vulnerability scan on source code
-        run: |
-          trivy fs . --exit-code 1 --severity HIGH,CRITICAL || true
